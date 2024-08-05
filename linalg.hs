@@ -45,6 +45,13 @@ findNonZeroAndSwap mat i j =
         [] -> mat
         (k:_) -> swapRows mat i k
 
+-- clockwise rotate 90
+rotateMatrix:: Matrix -> Matrix
+rotateMatrix = transposeMatrix . map reverse
+
+-- counterclockwise rotate 90
+rotateMatrixCounter :: Matrix -> Matrix
+rotateMatrixCounter = map reverse . transposeMatrix
 -----------SCALAR OPERATIONS-----------
 scalarMul :: Double -> Matrix -> Matrix
 scalarMul k = map (map (k *))
@@ -73,6 +80,9 @@ minor i j mat = [ [ mat !! r !! c | c <- [0..length (head mat) - 1], c /= j ]
 cofactor :: Int -> Int -> Matrix -> Double
 cofactor i j mat = ((-1) ^ (i + j)) * determinant (minor i j mat)
 
+-- Frobenius norm for matrices
+frobeniusNorm :: Matrix -> Double
+frobeniusNorm mat = sqrt . sum $ concatMap (map (^2)) mat
 
 inverse :: Matrix -> Maybe Matrix
 inverse mat = 
@@ -191,6 +201,16 @@ normalize v = let norm = vectorNorm v in map (/ norm) v
 -- Matrix-vector multiplication
 matVecMul :: Matrix -> Vector -> Vector
 matVecMul mat vec = map (dotProduct vec) mat
+
+-----------MISC-----------
+
+luDecomposition :: Matrix -> (Matrix, Matrix)
+luDecomposition mat = (lower, upper)
+  where
+    n = length mat
+    upper = [[if i <= j then mat !! i !! j - sum [lower !! i !! k * upper !! k !! j | k <- [0..i-1]] else 0 | j <- [0..n-1]] | i <- [0..n-1]]
+    lower = [[if i > j then (mat !! i !! j - sum [lower !! i !! k * upper !! k !! j | k <- [0..j-1]]) / upper !! j !! j else if i == j then 1 else 0 | j <- [0..n-1]] | i <- [0..n-1]]
+
 
 -----------MAIN-----------
 main :: IO ()

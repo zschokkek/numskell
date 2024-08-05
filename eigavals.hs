@@ -1,5 +1,3 @@
-import Data.List (transpose)
-
 type Vector = [Double]
 type Matrix = [Vector]
 
@@ -49,6 +47,10 @@ qrAlgorithm a n = iterate qrStep a !! n
 
 extractEigenvalues :: Matrix -> [Double]
 extractEigenvalues a = [a !! i !! i | i <- [0..length a - 1]]
+
+transpose ([]:_) = []
+transpose x = (map head x) : transpose (map tail x)
+
 
 main :: IO ()
 main = do

@@ -1,27 +1,8 @@
 --TODO: substition? more complexi math problems? export algebra? if export, can we 
 --TODO: series? series.hs?  
+import Test.HUnit
+import Algebra
 
-
-data Expr
-    = Const Double
-    | Var String
-    | Add Expr Expr
-    | Sub Expr Expr
-    | Mul Expr Expr
-    | Div Expr Expr
-    | Pow Expr Expr
-    | Log Expr
-    deriving (Show, Eq)
-
-prettyPrint :: Expr -> String
-prettyPrint (Const c) = show c
-prettyPrint (Var x) = x
-prettyPrint (Add u v) = "(" ++ prettyPrint u ++ " + " ++ prettyPrint v ++ ")"
-prettyPrint (Sub u v) = "(" ++ prettyPrint u ++ " - " ++ prettyPrint v ++ ")"
-prettyPrint (Mul u v) = "(" ++ prettyPrint u ++ " * " ++ prettyPrint v ++ ")"
-prettyPrint (Div u v) = "(" ++ prettyPrint u ++ " / " ++ prettyPrint v ++ ")"
-prettyPrint (Pow u v) = "(" ++ prettyPrint u ++ " ^ " ++ prettyPrint v ++ ")"
-prettyPrint (Log u) = "log(" ++ prettyPrint u ++ ")"
 
 -- Function to perform symbolic differentiation
 differentiate :: Expr -> String -> Expr
@@ -52,6 +33,20 @@ integrate (Pow (Var x) (Const n)) x'
     | otherwise = error "Unsupported integral form"
 integrate e _ = error $ "Cannot integrate expression: " ++ show e
 
+-- Compute the n-th order Taylor series expansion around a point
+-- Compute the n-th order Taylor series expansion around a point
+taylorSeries :: Expr -> String -> Double -> Int -> Expr
+taylorSeries f x a n
+    | n < 0     = error "Order of Taylor series must be non-negative"
+    | otherwise = foldr Add (Const 0) terms
+  where
+    terms = [term k | k <- [0..n]]
+    term k = Div (Mul (diff k) (Pow (Sub (Var x) (Const a)) (Const (fromIntegral k)))) (factorial k)
+    diff 0 = f
+    diff k = differentiate (diff (k-1)) x
+    factorial 0 = Const 1
+    factorial k = Const (fromIntegral (product [1..k]))
+
 -- Define an example expression f(x) = x^2 + 2x + 1
 f :: Expr
 f = Add (Add (Pow (Var "x") (Const 2)) (Mul (Const 2) (Var "x"))) (Const 1)
@@ -64,8 +59,24 @@ dfdx = differentiate f "x"
 intF :: Expr
 intF = integrate f "x"
 
+-- Define the main function for testing
 main :: IO ()
 main = do
-    putStrLn $ "Expression: " ++ prettyPrint f
-    putStrLn $ "Derivative: " ++ prettyPrint dfdx
-    putStrLn $ "Integral: " ++ prettyPrint intF
+    runTestTT tests
+    return ()
+
+-- Define tests for Taylor series
+tests :: Test
+tests = TestList [ testTaylorSeries1 ]
+
+-- Test cases
+testTaylorSeries1 :: Test
+testTaylorSeries1 = TestCase $ do
+    let expr = Var "x"
+    let result = taylorSeries expr "x" 0 1
+    let expected = Add (Const 0.0) (Var "x")
+    assertEqual "Taylor series of f(x) = x at x = 0, n = 1" expected (simplify result)
+
+-- Simplify the result
+simplifyResult :: Expr -> Expr
+simplifyResult = simplify
