@@ -1,89 +1,66 @@
-data Array i e = Array {
-    bounds :: (i, i),
-    elements :: [e]
-} deriving (Show, Eq)
+{-# LANGUAGE ScopedTypeVariables #-}
 
--- Create an array from a list and bounds
-listArray :: (Ix i) => (i, i) -> [e] -> Array i e
-listArray bnds elems
-    | rangeSize bnds == length elems = Array bnds elems
-    | otherwise = error "List length does not match array bounds"
+import Foreign
+import Foreign.C.Types
 
--- Create an array with all elements initialized to the same value
-array :: (Ix i) => (i, i) -> [(i, e)] -> Array i e
-array bnds assocs = Array bnds (map (lookupDefault def assocs) (range bnds))
-  where
-    def = error "Uninitialized element"
-    lookupDefault d as k = case lookup k as of
-        Just v -> v
-        Nothing -> d
+data UnboxedArray a = UnboxedArray {
+    bounds :: (Int, Int),
+    ptr    :: Ptr a
+}
 
--- Indexing with bounds checking
-(!) :: (Ix i) => Array i e -> i -> e
-(Array bnds elems) ! idx
-    | inRange bnds idx = elems !! index bnds idx
-    | otherwise = error "Index out of bounds"
+instance (Show a, Storable a) => Show (UnboxedArray a) where
+    show arr = show (bounds arr) ++ ": " ++ show (toList arr)
 
--- Update elements in the array
-(//) :: (Ix i) => Array i e -> [(i, e)] -> Array i e
-(Array bnds elems) // updates = Array bnds (go elems updates)
-  where
-    go es [] = es
-    go es ((i, e):us) = go (take idx es ++ [e] ++ drop (idx + 1) es) us
-      where
-        idx = index bnds i
+import Control.Exception (bracket)
 
+-- Create an unboxed array with a specific number of elements
+createArray :: Storable a => (Int, Int) -> IO (UnboxedArray a)
+createArray bnds@(l, u) = do
+    let size = (u - l + 1)
+    ptr <- mallocArray size
+    return $ UnboxedArray bnds ptr
 
-data Array i e = Array {
-    bounds :: (i, i),
-    elements :: [e]
-} deriving (Show, Eq)
+-- Free the unboxed array
+freeArray :: Storable a => UnboxedArray a -> IO ()
+freeArray (UnboxedArray _ ptr) = free ptr
 
--- Create an array from a list and bounds
-listArray :: (Ix i) => (i, i) -> [e] -> Array i e
-listArray bnds elems
-    | rangeSize bnds == length elems = Array bnds elems
-    | otherwise = error "List length does not match array bounds"
+-- Helper function to safely create and use an array
+withArray :: Storable a => (Int, Int) -> (UnboxedArray a -> IO b) -> IO b
+withArray bnds = bracket (createArray bnds) freeArray
 
--- Create an array with all elements initialized to the same value
-array :: (Ix i) => (i, i) -> [(i, e)] -> Array i e
-array bnds assocs = Array bnds (map (lookupDefault def assocs) (range bnds))
-  where
-    def = error "Uninitialized element"
-    lookupDefault d as k = case lookup k as of
-        Just v -> v
-        Nothing -> d
+-- Read an element from the unboxed array
+readArray :: Storable a => UnboxedArray a -> Int -> IO a
+readArray (UnboxedArray (l, _) ptr) i = do
+    let idx = i - l
+    peekElemOff ptr idx
 
--- Indexing with bounds checking
-(!) :: (Ix i) => Array i e -> i -> e
-(Array bnds elems) ! idx
-    | inRange bnds idx = elems !! index bnds idx
-    | otherwise = error "Index out of bounds"
+-- Write an element to the unboxed array
+writeArray :: Storable a => UnboxedArray a -> Int -> a -> IO ()
+writeArray (UnboxedArray (l, _) ptr) i val = do
+    let idx = i - l
+    pokeElemOff ptr idx val
 
--- Update elements in the array
-(//) :: (Ix i) => Array i e -> [(i, e)] -> Array i e
-(Array bnds elems) // updates = Array bnds (go elems updates)
-  where
-    go es [] = es
-    go es ((i, e):us) = go (take idx es ++ [e] ++ drop (idx + 1) es) us
-      where
-        idx = index bnds i
+-- Initialize an unboxed array from a list
+fromList :: Storable a => (Int, Int) -> [a] -> IO (UnboxedArray a)
+fromList bnds@(l, u) xs = do
+    arr <- createArray bnds
+    let size = (u - l + 1)
+    if length xs /= size
+        then error "List length does not match array bounds"
+        else do
+            let fill i [] = return ()
+                fill i (x:xs) = pokeElemOff (ptr arr) i x >> fill (i + 1) xs
+            fill 0 xs
+            return arr
 
--- Range size
-rangeSize :: (Ix i) => (i, i) -> Int
-rangeSize bnds = length (range bnds)
+-- Convert an unboxed array to a list
+toList :: (Storable a) => UnboxedArray a -> [a]
+toList arr = map (unsafePerformIO . readArray arr) [l..u]
+    where (l, u) = bounds arr
 
--- Convert an index to a position in the list
-index :: (Ix i) => (i, i) -> i -> Int
-index bnds idx = fromJust (elemIndex idx (range bnds))
-  where
-    fromJust (Just x) = x
-    fromJust Nothing = error "Index not found"
+(!) :: (Storable a) => UnboxedArray a -> Int -> IO a
+(!) = readArray
 
--- Generate a range of indices
-range :: (Ix i) => (i, i) -> [i]
-range (low, high) = [low..high]
+(//) :: (Storable a) => UnboxedArray a -> [(Int, a)] -> IO ()
+(//) arr updates = mapM_ (uncurry (writeArray arr)) updates
 
--- Check if an index is within the range
-inRange :: (Ord i) => (i, i) -> i -> Bool
-inRange (low, high) idx = low <= idx && idx <= high
