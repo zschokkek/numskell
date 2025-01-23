@@ -41,8 +41,6 @@ instance MonadZip Vector where
     mzipWith f (Vector xs) (Vector ys) = Vector (zipWith f xs ys)
     munzip (Vector xys) = (Vector (map fst xys), Vector (map snd xys))
 
-haskell
-Copy code
 -- Create a vector with n elements, all initialized to the same value
 replicate :: Int -> a -> Vector a
 replicate n x = Vector (Prelude.replicate n x)

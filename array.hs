@@ -1,5 +1,5 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
+-- array.hs
+module MyArray where
 import Foreign
 import Foreign.C.Types
 
