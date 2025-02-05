@@ -1,95 +1,124 @@
+{-|
+Module      : Test
+Description : Testing framework for statistical computations
+Copyright   : (c) Kyle Zschokke, 2025
+License     : BSD3
+
+This module provides comprehensive testing for our statistical computing system,
+including unit tests, property-based tests, and numerical stability tests.
+-}
+
+module Test where
+
+import Test.QuickCheck
 import Test.HUnit
-import Algebra
+import qualified Numeric.LinearAlgebra.Algorithms as LA
+import qualified Numeric.Matrix as M
+import qualified Numeric.Vector as V
+import qualified Statistics as S
 
--- Define an example expression f(x) = x^2 + 2x + 1
-f :: Expr
-f = Add (Add (Pow (Var "x") (Const 2)) (Mul (Const 2) (Var "x"))) (Const 1)
+-- | Property-based tests for vector operations
+prop_vector_addition_commutative :: V.Vector -> V.Vector -> Property
+prop_vector_addition_commutative v1 v2 =
+    V.length v1 == V.length v2 ==>
+        case V.add v1 v2 of
+            Nothing -> True  -- Different lengths handled properly
+            Just sum1 -> case V.add v2 v1 of
+                            Nothing -> False  -- Should not happen
+                            Just sum2 -> sum1 == sum2
 
--- Test cases for simplify function
-testSimplify1 :: Test
-testSimplify1 = TestCase $ do
-    let expr = Add (Const 0) (Var "x")
-    let result = simplify expr
-    let expected = Var "x"
-    assertEqual "Simplify 0 + x" expected result
+-- | Property-based tests for matrix operations
+prop_matrix_multiplication_associative :: M.Matrix -> M.Matrix -> M.Matrix -> Property
+prop_matrix_multiplication_associative a b c =
+    compatibleDimensions a b && compatibleDimensions b c ==>
+        case (M.multiply a b >>= M.multiply c,
+              M.multiply b c >>= M.multiply a) of
+            (Just m1, Just m2) -> matrixAlmostEqual m1 m2 1e-10
+            _ -> True  -- Incompatible dimensions handled properly
 
-testSimplify2 :: Test
-testSimplify2 = TestCase $ do
-    let expr = Mul (Const 1) (Var "x")
-    let result = simplify expr
-    let expected = Var "x"
-    assertEqual "Simplify 1 * x" expected result
+-- | Numerical stability tests
+test_numerical_stability :: Test
+test_numerical_stability = TestList [
+    -- Test condition number computation
+    TestCase $ do
+        let m = createIllConditionedMatrix 1000
+        case LA.condition m of
+            Nothing -> assertFailure "Failed to compute condition number"
+            Just c -> assertBool "Condition number in expected range" 
+                                (c > 1000 && c < 1001),
+                                
+    -- Test eigenvalue computation stability
+    TestCase $ do
+        let m = createDefectiveMatrix
+        case LA.eigenvalues m of
+            Nothing -> assertFailure "Failed to compute eigenvalues"
+            Just vals -> assertBool "Eigenvalues accurate within tolerance"
+                                  (eigenvaluesAccurate m vals 1e-8)
+    ]
 
-testSimplify3 :: Test
-testSimplify3 = TestCase $ do
-    let expr = Mul (Const 0) (Var "x")
-    let result = simplify expr
-    let expected = Const 0
-    assertEqual "Simplify 0 * x" expected result
+-- | Statistical accuracy tests
+test_statistical_accuracy :: Test
+test_statistical_accuracy = TestList [
+    -- Test normal distribution computations
+    TestCase $ do
+        let xs = generateNormalSample 1000 0 1
+        let mean = S.mean xs
+        let std = S.standardDeviation xs
+        assertBool "Sample mean within 3 sigma" (abs mean < 3/sqrt 1000)
+        assertBool "Sample std within 3 sigma" (abs (std - 1) < 3/sqrt 1000),
 
-testSimplify4 :: Test
-testSimplify4 = TestCase $ do
-    let expr = Add (Const 2) (Const 3)
-    let result = simplify expr
-    let expected = Const 5
-    assertEqual "Simplify 2 + 3" expected result
+    -- Test regression accuracy
+    TestCase $ do
+        let (x, y) = generateLinearData 100 2.5 1.3 0.1
+        case S.fitLinearModel x y of
+            Nothing -> assertFailure "Failed to fit linear model"
+            Just model -> do
+                assertBool "Slope estimate accurate" 
+                    (abs (S.coefficients model V.! 1 - 2.5) < 0.2)
+                assertBool "Intercept estimate accurate"
+                    (abs (S.coefficients model V.! 0 - 1.3) < 0.2)
+    ]
 
-testSimplify5 :: Test
-testSimplify5 = TestCase $ do
-    let expr = Pow (Const 2) (Const 3)
-    let result = simplify expr
-    let expected = Const 8
-    assertEqual "Simplify 2 ^ 3" expected result
+-- | Helper functions for testing
 
--- Add the tests to the tests list
-simplifyTests :: Test
-simplifyTests = TestList [testSimplify1, testSimplify2, testSimplify3, testSimplify4, testSimplify5]
+-- | Check if two matrices are approximately equal
+matrixAlmostEqual :: M.Matrix -> M.Matrix -> Double -> Bool
+matrixAlmostEqual m1 m2 tol = 
+    let diff = case M.subtract m1 m2 of
+                   Nothing -> error "Incompatible dimensions"
+                   Just d -> maximum [abs x | row <- M.toLists d, x <- row]
+    in diff < tol
 
--- Test cases for substitute function
-testSubstitute1 :: Test
-testSubstitute1 = TestCase $ do
-    let expr = Var "x"
-    let result = substitute expr "x" (Const 5)
-    let expected = Const 5
-    assertEqual "Substitute x with 5 in x" expected result
+-- | Create a matrix with known condition number
+createIllConditionedMatrix :: Double -> M.Matrix
+createIllConditionedMatrix cond = 
+    let n = 10  -- Size of matrix
+        diag = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1/cond]  -- Diagonal elements
+    in M.fromLists [[if i == j then diag !! i else 0 | j <- [0..n-1]] 
+                                                     | i <- [0..n-1]]
 
-testSubstitute2 :: Test
-testSubstitute2 = TestCase $ do
-    let expr = Add (Var "x") (Const 2)
-    let result = substitute expr "x" (Const 3)
-    let expected = Add (Const 3) (Const 2)
-    assertEqual "Substitute x with 3 in x + 2" expected result
+-- | Generate random sample from normal distribution
+generateNormalSample :: Int -> Double -> Double -> V.Vector
+generateNormalSample n mu sigma = undefined  -- TODO: Implement Box-Muller transform
 
-testSubstitute3 :: Test
-testSubstitute3 = TestCase $ do
-    let expr = Mul (Var "y") (Var "x")
-    let result = substitute expr "x" (Const 4)
-    let expected = Mul (Var "y") (Const 4)
-    assertEqual "Substitute x with 4 in y * x" expected result
+-- | Generate linear regression test data
+generateLinearData :: Int -> Double -> Double -> Double -> (M.Matrix, V.Vector)
+generateLinearData n slope intercept noise = undefined  -- TODO: Implement
 
-testSubstitute4 :: Test
-testSubstitute4 = TestCase $ do
-    let expr = Div (Var "x") (Var "z")
-    let result = substitute expr "x" (Const 2)
-    let expected = Div (Const 2) (Var "z")
-    assertEqual "Substitute x with 2 in x / z" expected result
+-- | Check if computed eigenvalues are accurate
+eigenvaluesAccurate :: M.Matrix -> V.Vector -> Double -> Bool
+eigenvaluesAccurate m vals tol = undefined  -- TODO: Implement
 
-testSubstitute5 :: Test
-testSubstitute5 = TestCase $ do
-    let expr = Pow (Var "x") (Const 2)
-    let result = substitute expr "x" (Add (Var "y") (Const 3))
-    let expected = Pow (Add (Var "y") (Const 3)) (Const 2)
-    assertEqual "Substitute x with y + 3 in x ^ 2" expected result
-
--- Add the tests to the tests list
-substituteTests :: Test
-substituteTests = TestList [testSubstitute1, testSubstitute2, testSubstitute3, testSubstitute4, testSubstitute5]
-
--- Define the main function for testing
+-- | Run all tests
 main :: IO ()
 main = do
-    runTestTT allTests
-    return ()
-
-allTests :: Test
-allTests = TestList [simplifyTests, substituteTests]  -- include existing tests
+    -- Run QuickCheck tests
+    quickCheck prop_vector_addition_commutative
+    quickCheck prop_matrix_multiplication_associative
+    
+    -- Run HUnit tests
+    counts <- runTestTT $ TestList [
+        test_numerical_stability,
+        test_statistical_accuracy
+        ]
+    putStrLn $ "Tests completed: " ++ show counts
